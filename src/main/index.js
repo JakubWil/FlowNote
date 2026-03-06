@@ -1,127 +1,87 @@
-/**
- * FlowNote — Main Process
- *
- * This is the "backend" of the Electron app.
- * It runs in Node.js and controls:
- *   - App lifecycle (start, quit)
- *   - Native OS features (global shortcuts, tray icon)
- *   - Window creation and management
- *   - IPC (communication between main and renderer)
- *
- * Think of this as your server-side code.
- */
+const { app, BrowserWindow, globalShortcut } = require('electron')
+const path = require('path')
 
-const { app, BrowserWindow, globalShortcut, ipcMain, nativeTheme } = require('electron');
-const path = require('path');
-const { initDatabase } = require('./database');
-const { registerShortcuts, unregisterShortcuts } = require('./shortcuts');
-const { setupIpcHandlers } = require('./ipc');
+const isDev = process.env.NODE_ENV === 'development'
 
-// ─── Dev vs Production ────────────────────────────────────────────────────────
-const isDev = process.env.NODE_ENV === 'development';
-const RENDERER_URL = 'http://localhost:5173';
+let mainWindow = null
+let overlayWindow = null
 
-// ─── Window References ────────────────────────────────────────────────────────
-// We keep references to windows so they don't get garbage collected
-let mainWindow = null;
-let overlayWindow = null;
-
-// ─── Create Main Window (Notes Library) ──────────────────────────────────────
 function createMainWindow() {
   mainWindow = new BrowserWindow({
     width: 1100,
     height: 720,
     minWidth: 800,
     minHeight: 500,
-    titleBarStyle: 'hiddenInset', // macOS native look with traffic lights
-    backgroundColor: '#0F0F13',
-    webPreferences: {
-      preload: path.join(__dirname, 'preload.js'),
-      contextIsolation: true,   // Security: renderer can't access Node directly
-      nodeIntegration: false,   // Security: always false in modern Electron
-    },
-  });
-
-  if (isDev) {
-    mainWindow.loadURL(`${RENDERER_URL}?window=main`);
-    mainWindow.webContents.openDevTools(); // Auto-open DevTools in development
-  } else {
-    mainWindow.loadFile(path.join(__dirname, '../../dist/index.html'), {
-      query: { window: 'main' }
-    });
-  }
-
-  mainWindow.on('closed', () => { mainWindow = null; });
-  return mainWindow;
-}
-
-// ─── Create Overlay Window (Voice Recording UI) ───────────────────────────────
-// This is the Siri-style bubble that appears on shortcut press
-function createOverlayWindow() {
-  overlayWindow = new BrowserWindow({
-    width: 380,
-    height: 120,
-    frame: false,           // No window chrome (title bar, borders)
-    transparent: true,      // Allows rounded corners with CSS
-    alwaysOnTop: true,      // Must appear above all other apps
-    resizable: false,
-    movable: false,
-    skipTaskbar: true,      // Don't show in Dock
-    show: false,            // Start hidden — shown on shortcut
+    titleBarStyle: 'hiddenInset',
+    backgroundColor: '#09090f',
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
       contextIsolation: true,
       nodeIntegration: false,
     },
-  });
+  })
 
   if (isDev) {
-    overlayWindow.loadURL(`${RENDERER_URL}?window=overlay`);
-  } else {
-    overlayWindow.loadFile(path.join(__dirname, '../../dist/index.html'), {
-      query: { window: 'overlay' }
-    });
+    mainWindow.loadURL('http://localhost:5173?window=main')
+    mainWindow.webContents.openDevTools()
   }
-
-  // Position at bottom-center of screen
-  const { screen } = require('electron');
-  const display = screen.getPrimaryDisplay();
-  const { width, height } = display.workAreaSize;
-  overlayWindow.setPosition(
-    Math.round(width / 2 - 190),
-    Math.round(height - 180)
-  );
-
-  return overlayWindow;
 }
 
-// ─── App Lifecycle ────────────────────────────────────────────────────────────
-app.whenReady().then(async () => {
-  // 1. Initialize local SQLite database
-  await initDatabase();
+function createOverlayWindow() {
+  const { screen } = require('electron')
 
-  // 2. Setup IPC handlers (communication between main and renderer)
-  setupIpcHandlers(ipcMain, { getMainWindow: () => mainWindow, getOverlayWindow: () => overlayWindow });
+  overlayWindow = new BrowserWindow({
+    width: 420,
+    height: 130,
+    frame: false,
+    transparent: true,
+    alwaysOnTop: true,
+    resizable: false,
+    skipTaskbar: true,
+    show: false,
+    webPreferences: {
+      preload: path.join(__dirname, 'preload.js'),
+      contextIsolation: true,
+      nodeIntegration: false,
+    },
+  })
 
-  // 3. Create windows
-  createMainWindow();
-  createOverlayWindow();
+  if (isDev) {
+    overlayWindow.loadURL('http://localhost:5173?window=overlay')
+  }
 
-  // 4. Register global keyboard shortcuts
-  registerShortcuts(globalShortcut, overlayWindow);
+  const display = screen.getPrimaryDisplay()
+  const { width, height } = display.workAreaSize
+  overlayWindow.setPosition(
+    Math.round(width / 2 - 210),
+    Math.round(height - 200)
+  )
+}
 
-  // 5. macOS: re-create window if app is activated with no windows open
+app.whenReady().then(() => {
+  createMainWindow()
+  createOverlayWindow()
+
+  // Globalny skrót — odpala overlay
+  globalShortcut.register('CommandOrControl+Shift+Space', () => {
+    if (!overlayWindow) return
+    if (overlayWindow.isVisible()) {
+      overlayWindow.hide()
+    } else {
+      overlayWindow.show()
+      overlayWindow.focus()
+    }
+  })
+
   app.on('activate', () => {
-    if (BrowserWindow.getAllWindows().length === 0) createMainWindow();
-  });
-});
+    if (BrowserWindow.getAllWindows().length === 0) createMainWindow()
+  })
+})
 
-// Quit when all windows are closed (except on macOS)
 app.on('window-all-closed', () => {
-  if (process.platform !== 'darwin') app.quit();
-});
+  if (process.platform !== 'darwin') app.quit()
+})
 
-// Clean up shortcuts before quitting
 app.on('will-quit', () => {
-  unregisterShortcuts(globalShortcut);
-});
+  globalShortcut.unregisterAll()
+})
