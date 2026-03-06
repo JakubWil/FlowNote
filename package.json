@@ -26,7 +26,9 @@
   "dependencies": {
     "better-sqlite3": "^9.4.3",
     "electron-store": "^8.2.0",
-    "keytar": "^7.9.0"
+    "keytar": "^7.9.0",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1"
   },
   "devDependencies": {
     "@vitejs/plugin-react": "^4.2.1",
@@ -51,7 +53,10 @@
     "mac": {
       "category": "public.app-category.productivity",
       "icon": "assets/icon.icns",
-      "target": ["dmg", "zip"],
+      "target": [
+        "dmg",
+        "zip"
+      ],
       "hardenedRuntime": true,
       "entitlements": "assets/entitlements.plist",
       "entitlementsInherit": "assets/entitlements.plist"
