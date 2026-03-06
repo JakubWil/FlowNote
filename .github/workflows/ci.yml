@@ -1,0 +1,87 @@
+# FlowNote — CI/CD Pipeline
+#
+# This file defines automated checks that run on every push and pull request.
+# Think of it as a robot that checks your code before it goes to production.
+#
+# What it does:
+#   1. Installs dependencies
+#   2. Runs linting (code style checks)
+#   3. Runs tests
+#   4. On main branch: builds the Mac app
+#
+# WHY CI/CD FROM DAY 1:
+#   - Catches bugs before they reach production
+#   - Forces good habits (writing tests, clean code)
+#   - Makes collaboration safe (no broken code on main)
+#   - Builds your app automatically — no manual steps
+
+name: CI
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main, develop]
+
+jobs:
+  # ─── Job 1: Check code quality ──────────────────────────────────────────────
+  lint-and-test:
+    name: Lint & Test
+    runs-on: macos-latest  # Must be macOS for Electron native modules
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci  # 'ci' is stricter than 'install' — uses exact versions from package-lock.json
+
+      - name: Run linter
+        run: npm run lint
+
+      - name: Check formatting
+        run: npm run format:check
+
+      - name: Run tests
+        run: npm test
+
+  # ─── Job 2: Build Mac app (only on main branch) ─────────────────────────────
+  build:
+    name: Build macOS App
+    runs-on: macos-latest
+    needs: lint-and-test  # Only runs if lint-and-test passes
+    if: github.ref == 'refs/heads/main'
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build renderer (React → static files)
+        run: npm run build:renderer
+
+      - name: Build Electron app
+        run: npm run build:main
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Upload build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: FlowNote-macOS
+          path: release/*.dmg
+          retention-days: 30
